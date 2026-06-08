@@ -36,6 +36,31 @@
         const redirectUrl = sessionStorage.getItem('redirect_url') || '/index.html';
         sessionStorage.removeItem('redirect_url');
         window.location.href = redirectUrl;
+      } else {
+        const updateUI = function() {
+          const nameEl = document.getElementById('user-name');
+          const avatarEl = document.getElementById('user-avatar');
+          const profileDiv = document.getElementById('user-profile');
+          
+          if (profileDiv) {
+            if (nameEl) nameEl.textContent = user.displayName || user.email.split('@')[0];
+            if (avatarEl) {
+              if (user.photoURL) {
+                avatarEl.src = user.photoURL;
+                avatarEl.style.display = 'block';
+              } else {
+                avatarEl.style.display = 'none';
+              }
+            }
+            profileDiv.style.display = 'flex';
+          }
+        };
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', updateUI);
+        } else {
+          updateUI();
+        }
       }
     }
   });

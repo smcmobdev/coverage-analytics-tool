@@ -125,6 +125,44 @@
       transform: translateY(-1px);
     }
 
+    .user-profile {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      padding: 6px 14px;
+      border-radius: 30px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .user-profile:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 4px 20px rgba(0, 176, 255, 0.15);
+    }
+
+    .user-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid var(--primary);
+      box-shadow: 0 0 8px var(--primary-glow);
+    }
+
+    .user-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-main);
+      max-width: 150px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* Cards Grid */
     .metrics-grid {
       display: grid;
@@ -222,6 +260,16 @@
     }
 
     @media (max-width: 768px) {
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .controls {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
       .charts-grid {
         grid-template-columns: 1fr;
       }
@@ -400,6 +448,10 @@
           <select id="version-select" onchange="onVersionChange()">
             <!-- Versions will be loaded here -->
           </select>
+        </div>
+        <div class="user-profile" id="user-profile">
+          <img id="user-avatar" class="user-avatar" src="" alt="" style="display: none;">
+          <span id="user-name" class="user-name">--</span>
         </div>
         <button class="btn-logout" onclick="logout()">Logout</button>
       </div>
