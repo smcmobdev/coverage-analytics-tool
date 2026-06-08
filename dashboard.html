@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMC ACE - Code Coverage Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      --card-bg: rgba(30, 41, 59, 0.45);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #00b0ff;
+      --primary-glow: rgba(0, 176, 255, 0.4);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.4);
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 40px 20px;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 24px;
+    }
+
+    .brand h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(to right, #00b0ff, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 4px;
+    }
+
+    .brand p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .select-wrapper {
+      position: relative;
+    }
+
+    select {
+      appearance: none;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 10px 40px 10px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.3s;
+      backdrop-filter: blur(10px);
+    }
+
+    select:hover {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .select-wrapper::after {
+      content: '▼';
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+
+    .btn-logout {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-logout:hover {
+      background: rgba(239, 68, 68, 0.2);
+      transform: translateY(-1px);
+    }
+
+    /* Cards Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+      transition: transform 0.3s, border-color 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+    }
+
+    .metric-card.success::before {
+      background: var(--success);
+    }
+
+    .metric-card.warning::before {
+      background: var(--warning);
+    }
+
+    .metric-title {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .metric-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .metric-sub {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .trend-indicator {
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+
+    .trend-up {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .trend-down {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .trend-neutral {
+      background: rgba(148, 163, 184, 0.15);
+      color: var(--text-muted);
+    }
+
+    /* Charts Section */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+
+    @media (max-width: 768px) {
+      .charts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .chart-header {
+      margin-bottom: 20px;
+    }
+
+    .chart-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .chart-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .chart-wrapper {
+      position: relative;
+      height: 300px;
+      width: 100%;
+    }
+
+    /* Modules Breakdown */
+    .breakdown-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+      margin-bottom: 40px;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .section-title {
+      font-size: 1.3rem;
+      font-weight: 600;
+    }
+
+    .btn-link {
+      display: inline-flex;
+      align-items: center;
+      background: linear-gradient(135deg, #00b0ff 0%, #0081cb 100%);
+      color: white;
+      text-decoration: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px var(--primary-glow);
+    }
+
+    .btn-link:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--primary-glow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 1px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    td {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.95rem;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .module-name {
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .progress-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      max-width: 300px;
+    }
+
+    .progress-bar-bg {
+      background: rgba(255, 255, 255, 0.05);
+      height: 8px;
+      border-radius: 4px;
+      flex-grow: 1;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--primary);
+      transition: width 0.8s ease-out;
+    }
+
+    .pct-val {
+      font-weight: 600;
+      min-width: 45px;
+      text-align: right;
+    }
+
+    .cors-warning {
+      display: none;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--warning);
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+      align-items: center;
+      gap: 12px;
+    }
+  </style>
+  <script>window.ALLOWED_DOMAINS = /*ALLOWED_DOMAINS_PLACEHOLDER*/ [];</script>
+  <script src="/__/firebase/10.10.0/firebase-app-compat.js"></script>
+  <script src="/__/firebase/10.10.0/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <script src="/auth_gate.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div id="cors-warning" class="cors-warning">
+      <span>⚠️</span>
+      <span><strong>Local Mode Preview:</strong> Running without a web server. Showing fallback mockup history data. Deploy to Firebase to see live coverage analytics.</span>
+    </div>
+
+    <header>
+      <div class="brand">
+        <h1>SMC ACE</h1>
+        <p>Code Coverage Analytics Dashboard</p>
+      </div>
+      <div class="controls">
+        <span style="font-size: 0.9rem; color: var(--text-muted);">Inspect Version:</span>
+        <div class="select-wrapper">
+          <select id="version-select" onchange="onVersionChange()">
+            <!-- Versions will be loaded here -->
+          </select>
+        </div>
+        <button class="btn-logout" onclick="logout()">Logout</button>
+      </div>
+    </header>
+
+    <!-- Metrics Cards -->
+    <div class="metrics-grid">
+      <div class="metric-card success" id="cov-card">
+        <div class="metric-title">Latest Test Coverage</div>
+        <div class="metric-value" id="latest-cov-val">--%</div>
+        <div class="metric-sub" id="latest-cov-sub">
+          <span>-- / -- lines hit</span>
+        </div>
+      </div>
+
+      <div class="metric-card" id="loc-card">
+        <div class="metric-title">Lines of Code (LOC)</div>
+        <div class="metric-value" id="loc-val">--</div>
+        <div class="metric-sub" id="loc-sub">
+          <span>Across all code modules</span>
+        </div>
+      </div>
+
+      <div class="metric-card" id="delta-card">
+        <div class="metric-title">New Code Coverage</div>
+        <div class="metric-value" id="delta-cov-val">--%</div>
+        <div class="metric-sub" id="delta-sub">
+          <span class="trend-indicator trend-neutral" id="delta-trend">--</span>
+          <span id="delta-txt">Added this release</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Coverage Health Trend</div>
+          <div class="chart-subtitle">Overall test coverage percentage across releases</div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">New Code Delta Evolution</div>
+          <div class="chart-subtitle">New lines added vs. covered in each release version</div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="deltaChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Module Breakdown Table -->
+    <div class="breakdown-card">
+      <div class="section-header">
+        <div class="section-title" id="breakdown-title">Module-Level Breakdown (Version --)</div>
+        <a href="#" class="btn-link" id="lcov-report-btn" target="_blank">View Detailed LCOV Report →</a>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Module Folder</th>
+            <th>Lines of Code (LOC)</th>
+            <th>Covered Lines</th>
+            <th>Coverage Percentage</th>
+          </tr>
+        </thead>
+        <tbody id="module-rows">
+          <!-- Dynamically populated rows -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function logout() {
+      if (typeof firebase !== 'undefined') {
+        firebase.auth().signOut().then(function() {
+          window.location.href = '/login.html';
+        });
+      }
+    }
+
+    // Fallback Mock Data for Local File Mode (CORS prevention)
+    const fallbackHistory = [
+      {
+        "version": "1.9.0",
+        "timestamp": "2026-05-01T10:00:00Z",
+        "totalLines": 8420,
+        "coveredLines": 5473,
+        "coveragePercentage": 65.00,
+        "deltaLines": 0,
+        "deltaCovered": 0,
+        "deltaCoveragePercentage": 0.00,
+        "modules": [
+          { "name": "core", "total": 1200, "covered": 840, "percentage": 70.00 },
+          { "name": "models", "total": 1500, "covered": 1350, "percentage": 90.00 },
+          { "name": "services", "total": 1800, "covered": 1080, "percentage": 60.00 },
+          { "name": "providers", "total": 1100, "covered": 770, "percentage": 70.00 },
+          { "name": "views", "total": 2000, "covered": 800, "percentage": 40.00 },
+          { "name": "utils", "total": 600, "covered": 510, "percentage": 85.00 },
+          { "name": "other", "total": 220, "covered": 123, "percentage": 55.91 }
+        ]
+      },
+      {
+        "version": "1.10.0",
+        "timestamp": "2026-05-20T10:00:00Z",
+        "totalLines": 9150,
+        "coveredLines": 6212,
+        "coveragePercentage": 67.89,
+        "deltaLines": 730,
+        "deltaCovered": 739,
+        "deltaCoveragePercentage": 100.0,
+        "modules": [
+          { "name": "core", "total": 1300, "covered": 980, "percentage": 75.38 },
+          { "name": "models", "total": 1600, "covered": 1490, "percentage": 93.13 },
+          { "name": "services", "total": 1950, "covered": 1220, "percentage": 62.56 },
+          { "name": "providers", "total": 1250, "covered": 910, "percentage": 72.80 },
+          { "name": "views", "total": 2200, "covered": 930, "percentage": 42.27 },
+          { "name": "utils", "total": 620, "covered": 540, "percentage": 87.10 },
+          { "name": "other", "total": 230, "covered": 142, "percentage": 61.74 }
+        ]
+      },
+      {
+        "version": "1.11.0",
+        "timestamp": "2026-06-08T15:00:00Z",
+        "totalLines": 9680,
+        "coveredLines": 6852,
+        "coveragePercentage": 70.79,
+        "deltaLines": 530,
+        "deltaCovered": 640,
+        "deltaCoveragePercentage": 120.75,
+        "modules": [
+          { "name": "core", "total": 1350, "covered": 1080, "percentage": 80.00 },
+          { "name": "models", "total": 1850, "covered": 1850, "percentage": 100.00 },
+          { "name": "services", "total": 2050, "covered": 1435, "percentage": 70.00 },
+          { "name": "providers", "total": 1300, "covered": 988, "percentage": 76.00 },
+          { "name": "views", "total": 2250, "covered": 810, "percentage": 36.00 },
+          { "name": "utils", "total": 650, "covered": 546, "percentage": 84.00 },
+          { "name": "other", "total": 230, "covered": 143, "percentage": 62.17 }
+        ]
+      }
+    ];
+
+    let historyData = [];
+    let trendChartInstance = null;
+    let deltaChartInstance = null;
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const response = await fetch('./history.json');
+        if (!response.ok) throw new Error('Failed to load JSON');
+        historyData = await response.json();
+      } catch (err) {
+        console.warn('Could not load history.json. Using offline preview mock data.', err);
+        if (location.hostname !== 'localhost' && location.protocol !== 'file:') {
+          document.getElementById('cors-warning').style.display = 'flex';
+        }
+        historyData = fallbackHistory;
+      }
+
+      initDashboard();
+    });
+
+    function initDashboard() {
+      const select = document.getElementById('version-select');
+      select.innerHTML = '';
+      
+      for (let i = historyData.length - 1; i >= 0; i--) {
+        const opt = document.createElement('option');
+        opt.value = historyData[i].version;
+        opt.textContent = `v${historyData[i].version} (${new Date(historyData[i].timestamp).toLocaleDateString()})`;
+        select.appendChild(opt);
+      }
+
+      if (historyData.length > 0) {
+        select.value = historyData[historyData.length - 1].version;
+        renderActiveVersion(select.value);
+      }
+
+      renderTrendChart();
+      renderDeltaChart();
+    }
+
+    function onVersionChange() {
+      const select = document.getElementById('version-select');
+      renderActiveVersion(select.value);
+    }
+
+    function renderActiveVersion(versionStr) {
+      const record = historyData.find(h => h.version === versionStr);
+      if (!record) return;
+
+      document.getElementById('latest-cov-val').textContent = `${record.coveragePercentage.toFixed(2)}%`;
+      document.getElementById('latest-cov-sub').innerHTML = `<span><strong>${record.coveredLines.toLocaleString()}</strong> / ${record.totalLines.toLocaleString()} lines hit</span>`;
+
+      document.getElementById('loc-val').textContent = record.totalLines.toLocaleString();
+      document.getElementById('loc-sub').innerHTML = `<span>Total codebase lines in version ${record.version}</span>`;
+
+      const deltaLines = record.deltaLines || 0;
+      const deltaCovered = record.deltaCovered || 0;
+      
+      if (deltaLines <= 0) {
+        document.getElementById('delta-cov-val').textContent = 'N/A';
+        const trend = document.getElementById('delta-trend');
+        trend.className = 'trend-indicator trend-neutral';
+        trend.textContent = 'Initial';
+        document.getElementById('delta-txt').textContent = 'Starting baseline version';
+      } else {
+        const deltaPct = record.deltaCoveragePercentage || 0;
+        document.getElementById('delta-cov-val').textContent = `${deltaPct.toFixed(2)}%`;
+
+        const trend = document.getElementById('delta-trend');
+        if (deltaPct >= 80) {
+          trend.className = 'trend-indicator trend-up';
+          trend.textContent = 'High Quality';
+        } else if (deltaPct >= 60) {
+          trend.className = 'trend-indicator trend-neutral';
+          trend.textContent = 'Healthy';
+        } else {
+          trend.className = 'trend-indicator trend-down';
+          trend.textContent = 'Low coverage';
+        }
+        document.getElementById('delta-txt').innerHTML = `<strong>+${deltaLines}</strong> lines added, <strong>+${deltaCovered}</strong> covered`;
+      }
+
+      const covCard = document.getElementById('cov-card');
+      covCard.className = `metric-card ${record.coveragePercentage >= 80 ? 'success' : record.coveragePercentage >= 50 ? 'warning' : ''}`;
+
+      document.getElementById('breakdown-title').textContent = `Module-Level Breakdown (Version ${record.version})`;
+      document.getElementById('lcov-report-btn').href = `./${record.version}/index.html`;
+
+      const tbody = document.getElementById('module-rows');
+      tbody.innerHTML = '';
+
+      record.modules.forEach(m => {
+        const pct = m.percentage;
+        const colorClass = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--primary)' : 'var(--danger)';
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><span class="module-name">${m.name}</span></td>
+          <td>${m.total.toLocaleString()}</td>
+          <td>${m.covered.toLocaleString()}</td>
+          <td>
+            <div class="progress-wrapper">
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: ${pct}%; background-color: ${colorClass};"></div>
+              </div>
+              <span class="pct-val" style="color: ${colorClass};">${pct.toFixed(2)}%</span>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function renderTrendChart() {
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      const labels = historyData.map(h => `v${h.version}`);
+      const covData = historyData.map(h => h.coveragePercentage);
+
+      if (trendChartInstance) trendChartInstance.destroy();
+
+      trendChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Overall Coverage (%)',
+              data: covData,
+              borderColor: '#00b0ff',
+              backgroundColor: 'rgba(0, 176, 255, 0.1)',
+              borderWidth: 3,
+              fill: true,
+              tension: 0.4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: '#94a3b8', font: { family: 'Outfit' } }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+            },
+            y: {
+              min: 0,
+              max: 100,
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderDeltaChart() {
+      const ctx = document.getElementById('deltaChart').getContext('2d');
+      const deltaRecords = historyData.slice(1);
+      const labels = deltaRecords.map(h => `v${h.version}`);
+      const addedData = deltaRecords.map(h => h.deltaLines);
+      const coveredData = deltaRecords.map(h => h.deltaCovered);
+
+      if (deltaChartInstance) deltaChartInstance.destroy();
+
+      deltaChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'New Lines Added',
+              data: addedData,
+              backgroundColor: 'rgba(139, 92, 246, 0.65)',
+              borderColor: '#8b5cf6',
+              borderWidth: 1,
+              borderRadius: 6
+            },
+            {
+              label: 'New Lines Covered',
+              data: coveredData,
+              backgroundColor: 'rgba(16, 185, 129, 0.65)',
+              borderColor: '#10b981',
+              borderWidth: 1,
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: '#94a3b8', font: { family: 'Outfit' } }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
