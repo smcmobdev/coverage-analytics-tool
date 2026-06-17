@@ -40,8 +40,9 @@ void main() async {
     print('Version fallback: $version');
   }
 
-  // 3. Read config for allowed domains
+  // 3. Read config for allowed domains and project name
   List<String> allowedDomains = [];
+  String projectName = 'SMC ACE';
   final configFile = File('coverage_config.json');
   if (await configFile.exists()) {
     try {
@@ -50,7 +51,11 @@ void main() async {
       if (config['allowedDomains'] != null) {
         allowedDomains = List<String>.from(config['allowedDomains']);
       }
+      if (config['projectName'] != null) {
+        projectName = config['projectName'] as String;
+      }
       print('Loaded allowed domains: $allowedDomains');
+      print('Loaded project name: $projectName');
     } catch (e) {
       print('Warning: Failed to parse coverage_config.json: $e');
     }
@@ -215,7 +220,7 @@ void main() async {
   }
 
   // 7. Inject Auth config into dashboard and login files
-  await applyConfigAndInject(allowedDomains);
+  await applyConfigAndInject(allowedDomains, projectName);
 }
 
 Future<String?> _getFirestoreProjectId() async {
@@ -326,7 +331,7 @@ Future<void> _uploadToFirestore(String projectId, String version, Map<String, dy
   }
 }
 
-Future<void> applyConfigAndInject(List<String> allowedDomains) async {
+Future<void> applyConfigAndInject(List<String> allowedDomains, String projectName) async {
   final domainsJson = jsonEncode(allowedDomains);
 
   // Update public/index.html
@@ -334,8 +339,9 @@ Future<void> applyConfigAndInject(List<String> allowedDomains) async {
   if (await indexFile.exists()) {
     var content = await indexFile.readAsString();
     content = content.replaceAll('/*ALLOWED_DOMAINS_PLACEHOLDER*/', domainsJson);
+    content = content.replaceAll('SMC ACE', projectName);
     await indexFile.writeAsString(content);
-    print('Injected allowed domains into public/index.html');
+    print('Injected allowed domains and project name into public/index.html');
   }
 
   // Update public/login.html
@@ -343,29 +349,30 @@ Future<void> applyConfigAndInject(List<String> allowedDomains) async {
   if (await loginFile.exists()) {
     var content = await loginFile.readAsString();
     content = content.replaceAll('/*ALLOWED_DOMAINS_PLACEHOLDER*/', domainsJson);
+    content = content.replaceAll('SMC ACE', projectName);
     await loginFile.writeAsString(content);
-    print('Injected allowed domains into public/login.html');
+    print('Injected allowed domains and project name into public/login.html');
   }
 
   // Recursively inject auth gate into all subpage LCOV HTML files
   final publicDir = Directory('public');
   int injectedCount = 0;
   await for (var entity in publicDir.list(recursive: true)) {
-    if (entity is File &&
-        entity.path.endsWith('.html') &&
-        !entity.path.endsWith('login.html') &&
-        !entity.path.endsWith('index.html')) {
-      var content = await entity.readAsString();
-      if (!content.contains('auth_gate.js')) {
-        // Prepend Firebase config script and auth gate to <head>
-        content = content.replaceFirst('<head>', '''<head>
+    if (entity is File && entity.path.endsWith('.html')) {
+      final normalizedPath = entity.path.replaceAll('\\', '/');
+      if (normalizedPath != 'public/login.html' && normalizedPath != 'public/index.html') {
+        var content = await entity.readAsString();
+        if (!content.contains('auth_gate.js')) {
+          // Prepend Firebase config script and auth gate to <head>
+          content = content.replaceFirst('<head>', '''<head>
   <script>window.ALLOWED_DOMAINS = $domainsJson;</script>
   <script src="/__/firebase/10.10.0/firebase-app-compat.js"></script>
   <script src="/__/firebase/10.10.0/firebase-auth-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script src="/auth_gate.js"></script>''');
-        await entity.writeAsString(content);
-        injectedCount++;
+          await entity.writeAsString(content);
+          injectedCount++;
+        }
       }
     }
   }
