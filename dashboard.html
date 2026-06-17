@@ -427,6 +427,7 @@
   <script>window.ALLOWED_DOMAINS = /*ALLOWED_DOMAINS_PLACEHOLDER*/ [];</script>
   <script src="/__/firebase/10.10.0/firebase-app-compat.js"></script>
   <script src="/__/firebase/10.10.0/firebase-auth-compat.js"></script>
+  <script src="/__/firebase/10.10.0/firebase-firestore-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
   <script src="/auth_gate.js"></script>
 </head>
@@ -605,6 +606,42 @@
     let deltaChartInstance = null;
 
     window.addEventListener('DOMContentLoaded', async () => {
+      // 1. Check if running in a deployed Firebase app environment
+      if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+        try {
+          console.log('Firebase initialized. Loading history from Firestore...');
+          const db = firebase.firestore();
+          const snapshot = await db.collection('coverage_history').get();
+          
+          if (!snapshot.empty) {
+            const rawDocs = [];
+            snapshot.forEach(doc => {
+              rawDocs.push(doc.data());
+            });
+            
+            // Sort history chronologically by timestamp
+            rawDocs.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+            
+            // Compute version-over-version deltas dynamically
+            historyData = calculateDeltas(rawDocs);
+            console.log('Successfully loaded coverage history from Firestore:', historyData);
+          } else {
+            console.warn('Firestore coverage_history collection is empty. Falling back to local history.json.');
+            await loadLocalHistory();
+          }
+        } catch (err) {
+          console.error('Failed to load coverage history from Firestore:', err);
+          await loadLocalHistory();
+        }
+      } else {
+        console.log('Firebase not initialized (local mode). Loading local history.json.');
+        await loadLocalHistory();
+      }
+
+      initDashboard();
+    });
+
+    async function loadLocalHistory() {
       try {
         const response = await fetch('./history.json');
         if (!response.ok) throw new Error('Failed to load JSON');
@@ -616,9 +653,30 @@
         }
         historyData = fallbackHistory;
       }
+    }
 
-      initDashboard();
-    });
+    function calculateDeltas(history) {
+      for (let i = 0; i < history.length; i++) {
+        if (i === 0) {
+          history[i].deltaLines = 0;
+          history[i].deltaCovered = 0;
+          history[i].deltaCoveragePercentage = 0.0;
+        } else {
+          const prev = history[i - 1];
+          const curr = history[i];
+
+          const addedLines = (curr.totalLines || 0) - (prev.totalLines || 0);
+          const addedCovered = (curr.coveredLines || 0) - (prev.coveredLines || 0);
+
+          curr.deltaLines = addedLines;
+          curr.deltaCovered = addedCovered;
+          curr.deltaCoveragePercentage = addedLines > 0
+              ? parseFloat((addedCovered / addedLines * 100).toFixed(2))
+              : 0.0;
+        }
+      }
+      return history;
+    }
 
     function initDashboard() {
       const select = document.getElementById('version-select');

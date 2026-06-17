@@ -199,8 +199,131 @@ void main() async {
   await historyFile.writeAsString(JsonEncoder.withIndent('  ').convert(history));
   print('Saved history.json with ${history.length} records');
 
+  // 6.5 Upload to Cloud Firestore if FIREBASE_TOKEN is available
+  final firebaseToken = Platform.environment['FIREBASE_TOKEN'];
+  if (firebaseToken != null && firebaseToken.isNotEmpty) {
+    print('Found FIREBASE_TOKEN. Attempting to upload to Cloud Firestore...');
+    final projectId = await _getFirestoreProjectId() ?? 'ace-devlopment';
+    final accessToken = await _getGcpAccessToken(firebaseToken);
+    if (accessToken != null) {
+      await _uploadToFirestore(projectId, version, currentSummary, accessToken);
+    } else {
+      print('Warning: Could not get GCP access token. Skipping Firestore upload.');
+    }
+  } else {
+    print('FIREBASE_TOKEN not found in environment. Skipping Firestore upload.');
+  }
+
   // 7. Inject Auth config into dashboard and login files
   await applyConfigAndInject(allowedDomains);
+}
+
+Future<String?> _getFirestoreProjectId() async {
+  final rcFile = File('.firebaserc');
+  if (await rcFile.exists()) {
+    try {
+      final content = await rcFile.readAsString();
+      final rc = jsonDecode(content);
+      if (rc['projects'] != null && rc['projects']['default'] != null) {
+        return rc['projects']['default'] as String;
+      }
+    } catch (e) {
+      print('Warning: Failed to parse .firebaserc: $e');
+    }
+  }
+  return null;
+}
+
+Future<String?> _getGcpAccessToken(String refreshToken) async {
+  final url = Uri.parse('https://oauth2.googleapis.com/token');
+  try {
+    final client = HttpClient();
+    final request = await client.postUrl(url);
+    request.headers.contentType = ContentType('application', 'x-www-form-urlencoded', charset: 'utf-8');
+    
+    final body = 'grant_type=refresh_token'
+        '&client_id=563584335869-5stnv87a38t76ca4te21ofaj74jt93ib.apps.googleusercontent.com'
+        '&client_secret=0g62IL1j3LIqthP64iMrpHr9'
+        '&refresh_token=$refreshToken';
+    
+    request.write(body);
+    final response = await request.close();
+    final responseBody = await response.transform(utf8.decoder).join();
+    
+    if (response.statusCode == 200) {
+      final json = jsonDecode(responseBody);
+      return json['access_token'] as String?;
+    } else {
+      print('Error exchanging refresh token. Status: ${response.statusCode}, Body: $responseBody');
+    }
+  } catch (e) {
+    print('Failed to get GCP access token: $e');
+  }
+  return null;
+}
+
+Map<String, dynamic> _toFirestoreDocument(Map<String, dynamic> data) {
+  Map<String, dynamic> convertValue(dynamic val) {
+    if (val is String) {
+      return {'stringValue': val};
+    } else if (val is int) {
+      return {'integerValue': val.toString()};
+    } else if (val is double) {
+      return {'doubleValue': val};
+    } else if (val is bool) {
+      return {'booleanValue': val};
+    } else if (val is List) {
+      return {
+        'arrayValue': {
+          'values': val.map((e) => convertValue(e)).toList()
+        }
+      };
+    } else if (val is Map) {
+      final fieldsMap = <String, dynamic>{};
+      val.forEach((k, v) {
+        fieldsMap[k] = convertValue(v);
+      });
+      return {
+        'mapValue': {
+          'fields': fieldsMap
+        }
+      };
+    }
+    return {'nullValue': null};
+  }
+
+  final fields = <String, dynamic>{};
+  data.forEach((k, v) {
+    fields[k] = convertValue(v);
+  });
+  return {'fields': fields};
+}
+
+Future<void> _uploadToFirestore(String projectId, String version, Map<String, dynamic> summary, String accessToken) async {
+  final url = Uri.parse(
+    'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/coverage_history/$version'
+  );
+  
+  final payload = _toFirestoreDocument(summary);
+  
+  try {
+    final client = HttpClient();
+    final request = await client.patchUrl(url);
+    request.headers.contentType = ContentType.json;
+    request.headers.set('Authorization', 'Bearer $accessToken');
+    request.write(jsonEncode(payload));
+    
+    final response = await request.close();
+    final responseBody = await response.transform(utf8.decoder).join();
+    
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      print('Successfully uploaded coverage summary to Firestore for version $version');
+    } else {
+      print('Failed to upload to Firestore. Status: ${response.statusCode}, Body: $responseBody');
+    }
+  } catch (e) {
+    print('Error sending patch request to Firestore: $e');
+  }
 }
 
 Future<void> applyConfigAndInject(List<String> allowedDomains) async {
