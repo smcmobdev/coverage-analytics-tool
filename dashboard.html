@@ -678,19 +678,36 @@
       return history;
     }
 
+    // History is now keyed per build (version + buildNumber), so a single
+    // version can appear multiple times. These helpers give each record a
+    // unique key (for lookups) and a build-aware label (for charts/dropdown),
+    // while staying backwards compatible with older records that predate
+    // buildNumber.
+    function buildTag(h) {
+      if (h.buildNumber === undefined || h.buildNumber === null || h.buildNumber === '') return '';
+      const b = String(h.buildNumber);
+      return b.startsWith('local-') ? ' (local)' : ` #${b}`;
+    }
+    function recordLabel(h) {
+      return `v${h.version}${buildTag(h)}`;
+    }
+    function recordKey(h) {
+      return `${h.version}::${h.buildNumber ?? ''}`;
+    }
+
     function initDashboard() {
       const select = document.getElementById('version-select');
       select.innerHTML = '';
-      
+
       for (let i = historyData.length - 1; i >= 0; i--) {
         const opt = document.createElement('option');
-        opt.value = historyData[i].version;
-        opt.textContent = `v${historyData[i].version} (${new Date(historyData[i].timestamp).toLocaleDateString()})`;
+        opt.value = recordKey(historyData[i]);
+        opt.textContent = `${recordLabel(historyData[i])} (${new Date(historyData[i].timestamp).toLocaleDateString()})`;
         select.appendChild(opt);
       }
 
       if (historyData.length > 0) {
-        select.value = historyData[historyData.length - 1].version;
+        select.value = recordKey(historyData[historyData.length - 1]);
         renderActiveVersion(select.value);
       }
 
@@ -703,8 +720,8 @@
       renderActiveVersion(select.value);
     }
 
-    function renderActiveVersion(versionStr) {
-      const record = historyData.find(h => h.version === versionStr);
+    function renderActiveVersion(recordKeyStr) {
+      const record = historyData.find(h => recordKey(h) === recordKeyStr);
       if (!record) return;
 
       document.getElementById('latest-cov-val').textContent = `${record.coveragePercentage.toFixed(2)}%`;
@@ -743,7 +760,7 @@
       const covCard = document.getElementById('cov-card');
       covCard.className = `metric-card ${record.coveragePercentage >= 80 ? 'success' : record.coveragePercentage >= 50 ? 'warning' : ''}`;
 
-      document.getElementById('breakdown-title').textContent = `Module-Level Breakdown (Version ${record.version})`;
+      document.getElementById('breakdown-title').textContent = `Module-Level Breakdown (${recordLabel(record)})`;
       document.getElementById('lcov-report-btn').href = `./${record.version}/index.html`;
 
       const tbody = document.getElementById('module-rows');
@@ -772,7 +789,7 @@
 
     function renderTrendChart() {
       const ctx = document.getElementById('trendChart').getContext('2d');
-      const labels = historyData.map(h => `v${h.version}`);
+      const labels = historyData.map(recordLabel);
       const covData = historyData.map(h => h.coveragePercentage);
 
       if (trendChartInstance) trendChartInstance.destroy();
@@ -820,7 +837,7 @@
     function renderDeltaChart() {
       const ctx = document.getElementById('deltaChart').getContext('2d');
       const deltaRecords = historyData.slice(1);
-      const labels = deltaRecords.map(h => `v${h.version}`);
+      const labels = deltaRecords.map(recordLabel);
       const addedData = deltaRecords.map(h => h.deltaLines);
       const coveredData = deltaRecords.map(h => h.deltaCovered);
 
