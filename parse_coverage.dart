@@ -110,9 +110,19 @@ void main() async {
     }
   }
 
-  // 5. Create current summary JSON object
+  // 5. Create current summary JSON object.
+  //    A single app version produces many pipeline runs, so history is keyed
+  //    per build (version + CI build number) rather than per version — that is
+  //    what lets the trend accumulate a point on every run instead of one
+  //    doc per version being overwritten. Falls back to a timestamp when the
+  //    build number is unavailable (e.g. local runs).
+  final buildNumber = Platform.environment['BITBUCKET_BUILD_NUMBER'];
+  final buildId = (buildNumber != null && buildNumber.isNotEmpty)
+      ? buildNumber
+      : 'local-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final currentSummary = {
     'version': version,
+    'buildNumber': buildId,
     'timestamp': DateTime.now().toUtc().toIso8601String(),
     'totalLines': totalLF,
     'coveredLines': totalLH,
@@ -211,7 +221,10 @@ void main() async {
     final projectId = await _getFirestoreProjectId() ?? 'ace-devlopment';
     final accessToken = await _getGcpAccessToken(firebaseToken);
     if (accessToken != null) {
-      await _uploadToFirestore(projectId, version, currentSummary, accessToken);
+      // One document per build so the trend keeps growing across runs of the
+      // same app version, instead of a single per-version doc being overwritten.
+      final docId = '${version}_$buildId';
+      await _uploadToFirestore(projectId, docId, currentSummary, accessToken);
     } else {
       print('Warning: Could not get GCP access token. Skipping Firestore upload.');
     }
@@ -304,9 +317,9 @@ Map<String, dynamic> _toFirestoreDocument(Map<String, dynamic> data) {
   return {'fields': fields};
 }
 
-Future<void> _uploadToFirestore(String projectId, String version, Map<String, dynamic> summary, String accessToken) async {
+Future<void> _uploadToFirestore(String projectId, String docId, Map<String, dynamic> summary, String accessToken) async {
   final url = Uri.parse(
-    'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/coverage_history/$version'
+    'https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents/coverage_history/$docId'
   );
   
   final payload = _toFirestoreDocument(summary);
@@ -322,7 +335,7 @@ Future<void> _uploadToFirestore(String projectId, String version, Map<String, dy
     final responseBody = await response.transform(utf8.decoder).join();
     
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      print('Successfully uploaded coverage summary to Firestore for version $version');
+      print('Successfully uploaded coverage summary to Firestore for $docId');
     } else {
       print('Failed to upload to Firestore. Status: ${response.statusCode}, Body: $responseBody');
     }
