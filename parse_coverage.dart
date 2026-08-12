@@ -273,7 +273,16 @@ Future<String?> _getFirestoreProjectId() async {
 /// so no external Dart packages are required (the script runs standalone).
 Future<String?> _getAccessTokenFromServiceAccount(String saJson) async {
   try {
-    final sa = jsonDecode(saJson) as Map<String, dynamic>;
+    // Accept either raw JSON or a base64-encoded JSON blob (base64 avoids
+    // newline mangling when the key is stored in a CI variable).
+    final raw = saJson.trim();
+    Map<String, dynamic> sa;
+    try {
+      sa = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      sa = jsonDecode(utf8.decode(base64.decode(raw.replaceAll(RegExp(r'\s'), ''))))
+          as Map<String, dynamic>;
+    }
     final clientEmail = sa['client_email'] as String?;
     final privateKey = sa['private_key'] as String?;
     final tokenUri =
