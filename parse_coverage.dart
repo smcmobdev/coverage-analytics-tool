@@ -214,22 +214,38 @@ void main() async {
   await historyFile.writeAsString(JsonEncoder.withIndent('  ').convert(history));
   print('Saved history.json with ${history.length} records');
 
-  // 6.5 Upload to Cloud Firestore if FIREBASE_TOKEN is available
+  // 6.5 Upload to Cloud Firestore.
+  //   Preferred: a service-account key JSON in the GCP_SA_KEY env var (a
+  //   Bitbucket repository variable). Repo variables are auto-exposed to the
+  //   pipeline as env vars, so no bitbucket-pipelines.yml change is needed.
+  //   Falls back to the legacy FIREBASE_TOKEN (firebase login:ci refresh
+  //   token) when no service account is configured.
+  final projectId = await _getFirestoreProjectId() ?? 'ace-devlopment';
+  final serviceAccountJson = Platform.environment['GCP_SA_KEY'];
   final firebaseToken = Platform.environment['FIREBASE_TOKEN'];
-  if (firebaseToken != null && firebaseToken.isNotEmpty) {
-    print('Found FIREBASE_TOKEN. Attempting to upload to Cloud Firestore...');
-    final projectId = await _getFirestoreProjectId() ?? 'ace-devlopment';
-    final accessToken = await _getGcpAccessToken(firebaseToken);
-    if (accessToken != null) {
-      // One document per build so the trend keeps growing across runs of the
-      // same app version, instead of a single per-version doc being overwritten.
-      final docId = '${version}_$buildId';
-      await _uploadToFirestore(projectId, docId, currentSummary, accessToken);
-    } else {
-      print('Warning: Could not get GCP access token. Skipping Firestore upload.');
+  String? accessToken;
+
+  if (serviceAccountJson != null && serviceAccountJson.trim().isNotEmpty) {
+    print('Found GCP_SA_KEY. Minting access token from service account...');
+    accessToken = await _getAccessTokenFromServiceAccount(serviceAccountJson);
+    if (accessToken == null) {
+      print('Warning: Could not mint access token from service account.');
+    }
+  } else if (firebaseToken != null && firebaseToken.isNotEmpty) {
+    print('GCP_SA_KEY not set. Falling back to FIREBASE_TOKEN...');
+    accessToken = await _getGcpAccessToken(firebaseToken);
+    if (accessToken == null) {
+      print('Warning: Could not get GCP access token from FIREBASE_TOKEN.');
     }
   } else {
-    print('FIREBASE_TOKEN not found in environment. Skipping Firestore upload.');
+    print('Neither GCP_SA_KEY nor FIREBASE_TOKEN set. Skipping Firestore upload.');
+  }
+
+  if (accessToken != null) {
+    // One document per build so the trend keeps growing across runs of the
+    // same app version, instead of a single per-version doc being overwritten.
+    final docId = '${version}_$buildId';
+    await _uploadToFirestore(projectId, docId, currentSummary, accessToken);
   }
 
   // 7. Inject Auth config into dashboard and login files
@@ -248,6 +264,76 @@ Future<String?> _getFirestoreProjectId() async {
     } catch (e) {
       print('Warning: Failed to parse .firebaserc: $e');
     }
+  }
+  return null;
+}
+
+/// Mints a short-lived GCP access token from a service-account key JSON using
+/// the OAuth 2.0 JWT-bearer flow. RS256 signing is done via the `openssl` CLI
+/// so no external Dart packages are required (the script runs standalone).
+Future<String?> _getAccessTokenFromServiceAccount(String saJson) async {
+  try {
+    final sa = jsonDecode(saJson) as Map<String, dynamic>;
+    final clientEmail = sa['client_email'] as String?;
+    final privateKey = sa['private_key'] as String?;
+    final tokenUri =
+        (sa['token_uri'] as String?) ?? 'https://oauth2.googleapis.com/token';
+    if (clientEmail == null || privateKey == null) {
+      print('Service account JSON missing client_email/private_key.');
+      return null;
+    }
+
+    String b64url(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final header = b64url(utf8.encode(jsonEncode({'alg': 'RS256', 'typ': 'JWT'})));
+    final claim = b64url(utf8.encode(jsonEncode({
+      'iss': clientEmail,
+      'scope': 'https://www.googleapis.com/auth/datastore',
+      'aud': tokenUri,
+      'iat': now,
+      'exp': now + 3600,
+    })));
+    final signingInput = '$header.$claim';
+
+    // Sign SHA-256/RSA (RS256) with openssl.
+    final pkFile = File('${Directory.systemTemp.path}/coverage_sa_key.pem');
+    await pkFile.writeAsString(privateKey);
+    final proc =
+        await Process.start('openssl', ['dgst', '-sha256', '-sign', pkFile.path]);
+    proc.stdin.add(utf8.encode(signingInput));
+    await proc.stdin.close();
+    final sigBytes =
+        await proc.stdout.fold<List<int>>(<int>[], (p, e) => p..addAll(e));
+    final errBytes =
+        await proc.stderr.fold<List<int>>(<int>[], (p, e) => p..addAll(e));
+    final exitCode = await proc.exitCode;
+    try {
+      await pkFile.delete();
+    } catch (_) {}
+    if (exitCode != 0 || sigBytes.isEmpty) {
+      print('openssl signing failed (exit $exitCode): ${utf8.decode(errBytes)}');
+      return null;
+    }
+    final jwt = '$signingInput.${b64url(sigBytes)}';
+
+    final client = HttpClient();
+    final request = await client.postUrl(Uri.parse(tokenUri));
+    request.headers.contentType =
+        ContentType('application', 'x-www-form-urlencoded', charset: 'utf-8');
+    final body =
+        'grant_type=${Uri.encodeComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}'
+        '&assertion=$jwt';
+    request.write(body);
+    final response = await request.close();
+    final responseBody = await response.transform(utf8.decoder).join();
+    if (response.statusCode == 200) {
+      return (jsonDecode(responseBody) as Map<String, dynamic>)['access_token']
+          as String?;
+    }
+    print(
+        'Error exchanging service-account JWT. Status: ${response.statusCode}, Body: $responseBody');
+  } catch (e) {
+    print('Failed to mint access token from service account: $e');
   }
   return null;
 }
