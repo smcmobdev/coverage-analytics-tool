@@ -64,17 +64,11 @@ void main() async {
   // 4. Parse LCOV file
   final lines = await lcovFile.readAsLines();
 
-  // Modules map
-  final Map<String, Map<String, int>> moduleStats = {
-    'core': {'total': 0, 'covered': 0},
-    'feature': {'total': 0, 'covered': 0},
-    'models': {'total': 0, 'covered': 0},
-    'providers': {'total': 0, 'covered': 0},
-    'services': {'total': 0, 'covered': 0},
-    'utils': {'total': 0, 'covered': 0},
-    'views': {'total': 0, 'covered': 0},
-    'other': {'total': 0, 'covered': 0},
-  };
+  // Module stats accumulated per module and created on demand, so the
+  // breakdown reflects the real project structure — one row per feature plus a
+  // row per top-level lib/ folder — instead of a fixed bucket list where most
+  // code collapsed into "other".
+  final Map<String, Map<String, int>> moduleStats = {};
 
   int totalLF = 0;
   int totalLH = 0;
@@ -96,17 +90,11 @@ void main() async {
       totalLF += currentLF;
       totalLH += currentLH;
 
-      final parts = currentFile.split('/');
-      String module = 'other';
-      if (parts.length > 1 && parts[0] == 'lib') {
-        final folder = parts[1];
-        if (moduleStats.containsKey(folder)) {
-          module = folder;
-        }
-      }
-
-      moduleStats[module]!['total'] = moduleStats[module]!['total']! + currentLF;
-      moduleStats[module]!['covered'] = moduleStats[module]!['covered']! + currentLH;
+      final module = _moduleFor(currentFile);
+      final stat =
+          moduleStats.putIfAbsent(module, () => {'total': 0, 'covered': 0});
+      stat['total'] = stat['total']! + currentLF;
+      stat['covered'] = stat['covered']! + currentLH;
     }
   }
 
@@ -127,7 +115,7 @@ void main() async {
     'totalLines': totalLF,
     'coveredLines': totalLH,
     'coveragePercentage': totalLF > 0 ? double.parse((totalLH / totalLF * 100).toStringAsFixed(2)) : 0.0,
-    'modules': moduleStats.entries.map((e) {
+    'modules': (moduleStats.entries.map((e) {
       final total = e.value['total']!;
       final covered = e.value['covered']!;
       return {
@@ -136,7 +124,9 @@ void main() async {
         'covered': covered,
         'percentage': total > 0 ? double.parse((covered / total * 100).toStringAsFixed(2)) : 0.0,
       };
-    }).toList(),
+    }).toList()
+      // Stable, readable order in the dashboard breakdown table.
+      ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String))),
   };
 
   // Ensure public/VERSION directory exists
@@ -250,6 +240,25 @@ void main() async {
 
   // 7. Inject Auth config into dashboard and login files
   await applyConfigAndInject(allowedDomains, projectName);
+}
+
+/// Classifies an lcov `SF:` path into a coverage module.
+///
+/// Files under `lib/features/<name>/...` get a per-feature module
+/// (`features/<name>`) so each feature has its own breakdown row. Everything
+/// else is grouped by its top-level `lib/<folder>` name (e.g. `core`,
+/// `Data_point`, `markets`, `utils`). Paths outside `lib/` fall back to `other`.
+String _moduleFor(String file) {
+  final parts = file.split('/');
+  if (parts.length < 2 || parts[0] != 'lib') return 'other';
+  // A file directly under lib/ (e.g. lib/main.dart) — group these together
+  // instead of creating a one-file module per root file.
+  if (parts.length == 2) return 'root';
+  final top = parts[1];
+  if (top == 'features' && parts.length >= 3) {
+    return 'features/${parts[2]}';
+  }
+  return top;
 }
 
 Future<String?> _getFirestoreProjectId() async {
