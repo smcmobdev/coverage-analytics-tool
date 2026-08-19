@@ -244,10 +244,11 @@ void main() async {
 
 /// Classifies an lcov `SF:` path into a coverage module.
 ///
-/// Files under `lib/features/<name>/...` get a per-feature module
-/// (`features/<name>`) so each feature has its own breakdown row. Everything
-/// else is grouped by its top-level `lib/<folder>` name (e.g. `core`,
-/// `Data_point`, `markets`, `utils`). Paths outside `lib/` fall back to `other`.
+/// All files under `lib/features/...` are grouped into a single `features`
+/// module (one combined row) instead of one row per feature, which made the
+/// dashboard table very large. Everything else is grouped by its top-level
+/// `lib/<folder>` name (e.g. `core`, `Data_point`, `markets`, `utils`). Paths
+/// outside `lib/` fall back to `other`.
 String _moduleFor(String file) {
   final parts = file.split('/');
   if (parts.length < 2 || parts[0] != 'lib') return 'other';
@@ -255,8 +256,10 @@ String _moduleFor(String file) {
   // instead of creating a one-file module per root file.
   if (parts.length == 2) return 'root';
   final top = parts[1];
-  if (top == 'features' && parts.length >= 3) {
-    return 'features/${parts[2]}';
+  // Collapse every feature into one 'features' row rather than
+  // 'features/<name>' per-feature rows.
+  if (top == 'features') {
+    return 'features';
   }
   return top;
 }
